@@ -419,6 +419,80 @@ func Test_boardView_getBoardAssignees(t *testing.T) {
 	assert.True(t, foundUnassigned)
 }
 
+func Test_boardView_getBoardAssignees_UsesApiWhenProjectAvailable(t *testing.T) {
+	api := jira.NewJiraApiMock(func(w http.ResponseWriter, r *http.Request) {
+		if matched, _ := regexp.MatchString(`/rest/api/2/user/assignable/search`, r.URL.Path); matched {
+			w.WriteHeader(200)
+			body, _ := json.Marshal([]jira.User{
+				{AccountId: "acc1", DisplayName: "Alice"},
+				{AccountId: "acc2", DisplayName: "Bob"},
+				{AccountId: "acc3", DisplayName: "Charlie"},
+			})
+			_, _ = w.Write(body)
+			return
+		}
+		w.WriteHeader(404)
+	})
+
+	view := &boardView{
+		api:     api,
+		project: &jira.Project{Key: "TEST"},
+		allIssues: []jira.Issue{
+			{Fields: jira.IssueFields{Assignee: struct {
+				AccountId   string `json:"accountId"`
+				DisplayName string `json:"displayName"`
+			}{AccountId: "acc1", DisplayName: "Alice"}}},
+			{Fields: jira.IssueFields{Assignee: struct {
+				AccountId   string `json:"accountId"`
+				DisplayName string `json:"displayName"`
+			}{AccountId: "", DisplayName: ""}}},
+		},
+	}
+
+	assignees := view.getBoardAssignees()
+
+	// Should have all 3 API users + Unassigned (from board issues)
+	assert.Equal(t, 4, len(assignees))
+
+	// Verify sorted alphabetically
+	assert.Equal(t, "Alice", assignees[0].DisplayName)
+	assert.Equal(t, "Bob", assignees[1].DisplayName)
+	assert.Equal(t, "Charlie", assignees[2].DisplayName)
+	assert.Equal(t, "Unassigned", assignees[3].DisplayName)
+
+	// Verify AccountId is preserved (not just DisplayName)
+	assert.Equal(t, "acc1", assignees[0].AccountId)
+	assert.Equal(t, "acc2", assignees[1].AccountId)
+}
+
+func Test_boardView_getBoardAssignees_FallsBackOnApiError(t *testing.T) {
+	api := jira.NewJiraApiMock(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+	})
+
+	view := &boardView{
+		api:     api,
+		project: &jira.Project{Key: "TEST"},
+		allIssues: []jira.Issue{
+			{Fields: jira.IssueFields{Assignee: struct {
+				AccountId   string `json:"accountId"`
+				DisplayName string `json:"displayName"`
+			}{AccountId: "acc1", DisplayName: "Alice"}}},
+			{Fields: jira.IssueFields{Assignee: struct {
+				AccountId   string `json:"accountId"`
+				DisplayName string `json:"displayName"`
+			}{AccountId: "acc2", DisplayName: "Bob"}}},
+		},
+	}
+
+	assignees := view.getBoardAssignees()
+
+	// Fallback: 2 users scraped from issues (sorted)
+	assert.Equal(t, 2, len(assignees))
+	assert.Equal(t, "Alice", assignees[0].DisplayName)
+	assert.Equal(t, "Bob", assignees[1].DisplayName)
+}
+
 func Test_boardView_assigneeFilterInitialState(t *testing.T) {
 	screen := tcell.NewSimulationScreen("utf-8")
 	_ = screen.Init() //nolint:errcheck
@@ -502,4 +576,109 @@ func Test_boardView_fetchIssues_WithActiveSprint_UsesSprintIssues(t *testing.T) 
 	assert.Len(t, issues, 2)
 	assert.Equal(t, "S1", issues[0].Key)
 	assert.Equal(t, "S2", issues[1].Key)
+}
+
+func Test_boardView_fetchIssues_AppliesSubQuery(t *testing.T) {
+	app.InitTestApp(nil)
+	var capturedURL string
+	api := jira.NewJiraApiMock(func(w http.ResponseWriter, r *http.Request) {
+		capturedURL = r.URL.String()
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte(`{
+  "startAt": 0,
+  "maxResults": 100,
+  "total": 1,
+  "issues": [
+    { "id": "30001", "key": "SQ1" }
+  ]
+}`))
+	})
+
+	boardConfig := &jira.BoardConfiguration{
+		Id: 1,
+	}
+	boardConfig.SubQuery.Query = "resolution = EMPTY"
+
+	view := NewBoardView(&jira.Project{}, boardConfig, "project = TEST", api).(*boardView)
+
+	// when
+	issues, err := view.fetchIssues()
+
+	// then
+	assert.NoError(t, err)
+	assert.Len(t, issues, 1)
+	assert.Equal(t, "SQ1", issues[0].Key)
+	// Verify that the subQuery was appended to the JQL
+	assert.Contains(t, capturedURL, "resolution")
+	assert.Contains(t, capturedURL, "project")
+}
+
+func Test_boardView_fetchIssues_SubQueryNotAppliedWithSprint(t *testing.T) {
+	app.InitTestApp(nil)
+	var capturedURL string
+	api := jira.NewJiraApiMock(func(w http.ResponseWriter, r *http.Request) {
+		capturedURL = r.URL.String()
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte(`{
+  "startAt": 0,
+  "maxResults": 100,
+  "total": 1,
+  "issues": [
+    { "id": "40001", "key": "SP1" }
+  ]
+}`))
+	})
+
+	boardConfig := &jira.BoardConfiguration{
+		Id: 1,
+	}
+	boardConfig.SubQuery.Query = "resolution = EMPTY"
+
+	view := NewBoardView(&jira.Project{}, boardConfig, "project = TEST", api).(*boardView)
+	view.activeSprint = &jira.SprintItem{Id: 5, Name: "Sprint 5", State: "active"}
+
+	// when
+	issues, err := view.fetchIssues()
+
+	// then
+	assert.NoError(t, err)
+	assert.Len(t, issues, 1)
+	// Sprint path uses agile API, not JQL — subQuery should NOT be in URL
+	assert.Contains(t, capturedURL, "sprint")
+	assert.NotContains(t, capturedURL, "resolution")
+}
+
+func Test_boardView_fetchIssues_SubQueryStripsOrderBy(t *testing.T) {
+	app.InitTestApp(nil)
+	var capturedURL string
+	api := jira.NewJiraApiMock(func(w http.ResponseWriter, r *http.Request) {
+		capturedURL = r.URL.String()
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte(`{
+  "startAt": 0,
+  "maxResults": 100,
+  "total": 1,
+  "issues": [
+    { "id": "50001", "key": "OB1" }
+  ]
+}`))
+	})
+
+	boardConfig := &jira.BoardConfiguration{
+		Id: 1,
+	}
+	boardConfig.SubQuery.Query = "resolution = EMPTY ORDER BY Rank ASC"
+
+	view := NewBoardView(&jira.Project{}, boardConfig, "project = TEST", api).(*boardView)
+
+	// when
+	issues, err := view.fetchIssues()
+
+	// then
+	assert.NoError(t, err)
+	assert.Len(t, issues, 1)
+	// SubQuery should be applied but ORDER BY stripped
+	assert.Contains(t, capturedURL, "resolution")
+	assert.NotContains(t, capturedURL, "ORDER")
+	assert.NotContains(t, capturedURL, "Rank")
 }

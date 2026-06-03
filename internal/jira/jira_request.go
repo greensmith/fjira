@@ -8,6 +8,7 @@ import (
 	"path"
 
 	"github.com/google/go-querystring/query"
+	"github.com/mk-5/fjira/internal/app"
 )
 
 func (api *httpApi) jiraRequest(method string, restPath string, queryParams interface{}, reqBody io.Reader) ([]byte, error) {
@@ -23,15 +24,21 @@ func (api *httpApi) jiraRequest(method string, restPath string, queryParams inte
 	}
 	response, err := api.client.Do(req)
 	if err != nil {
+		app.LogError("[%s %s] network error: %s", method, restPath, err)
 		return nil, err
-	}
-	if response.StatusCode >= 400 {
-		return nil, fmt.Errorf("jira error, status: %s - request: %s", response.Status, req.RequestURI)
 	}
 	defer func(Body io.ReadCloser) {
 		_ = Body.Close()
 	}(response.Body)
 	body, _ := io.ReadAll(response.Body)
+	if response.StatusCode >= 400 {
+		detail := string(body)
+		app.LogError("[%s %s] status=%d url=%s response=%s", method, restPath, response.StatusCode, u, detail)
+		if len(detail) > 300 {
+			detail = detail[:300]
+		}
+		return nil, fmt.Errorf("jira error %s [%s %s] %s", response.Status, method, restPath, detail)
+	}
 	return body, nil
 }
 
