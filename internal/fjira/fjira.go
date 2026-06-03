@@ -50,6 +50,7 @@ type CliArgs struct {
 	WorkspaceSwitch bool
 	WorkspaceEdit   bool
 	JqlMode         bool
+	JqlQuery        string
 	FiltersMode     bool
 }
 
@@ -128,7 +129,11 @@ func (f *Fjira) bootstrap(args *CliArgs) {
 		return
 	}
 	if args.JqlMode {
-		app.GoTo("jql", f.api)
+		if args.JqlQuery != "" {
+			app.GoTo("issues-search-jql", args.JqlQuery, nil, f.api)
+		} else {
+			app.GoTo("jql", f.api)
+		}
 		return
 	}
 	if args.FiltersMode {

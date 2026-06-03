@@ -8,15 +8,21 @@ import (
 
 func GetJqlCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "jql",
+		Use:   "jql [query]",
 		Short: "Search using custom JQL queries",
+		Long:  "Opens JQL search. Pass a JQL string as argument to search immediately, or omit to enter JQL interactively.",
+		Args:  cobra.MaximumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			s := cmd.Context().Value(CtxWorkspaceSettings).(*workspaces.WorkspaceSettings)
 			f := fjira.CreateNewFjira(s)
 			defer f.Close()
-			f.Run(&fjira.CliArgs{
+			cliArgs := &fjira.CliArgs{
 				JqlMode: true,
-			})
+			}
+			if len(args) == 1 {
+				cliArgs.JqlQuery = args[0]
+			}
+			f.Run(cliArgs)
 		},
 	}
 }

@@ -123,6 +123,9 @@ func (view *searchIssuesView) Update() {
 	if view.fuzzyFind != nil {
 		view.fuzzyFind.Update()
 	}
+	if view.customJql != "" {
+		return
+	}
 	if searchForStatus != nil && view.topBar.GetItem(topBarStatus).Text2 != searchForStatus.Name {
 		view.topBar.GetItem(topBarStatus).ChangeText(ui.MessageLabelStatus, searchForStatus.Name)
 		view.topBar.Resize(view.screenX, view.screenY)
