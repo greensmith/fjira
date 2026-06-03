@@ -17,17 +17,18 @@ const (
 var ErrSearchDeserialize = errors.New("cannot deserialize jira search response")
 
 type searchQueryParams struct {
-	Jql        string `url:"jql"`
-	MaxResults int32  `url:"maxResults"`
-	Fields     string `url:"fields"`
-	StartAt    int32  `url:"startAt"`
+	Jql           string `url:"jql"`
+	MaxResults    int32  `url:"maxResults"`
+	Fields        string `url:"fields"`
+	NextPageToken string `url:"nextPageToken,omitempty"`
 }
 
 type searchResponse struct {
-	Total      int32   `json:"total"`
-	MaxResults int32   `json:"maxResults"`
-	Issues     []Issue `json:"issues"`
-	IsLast     bool    `json:"isLast"`
+	Total         int32   `json:"total"`
+	MaxResults    int32   `json:"maxResults"`
+	Issues        []Issue `json:"issues"`
+	IsLast        bool    `json:"isLast"`
+	NextPageToken string  `json:"nextPageToken"`
 }
 
 func (api *httpApi) Search(query string) ([]Issue, int32, error) {
@@ -49,7 +50,6 @@ func (api *httpApi) SearchJqlPageable(jql string, page int32, pageSize int32) ([
 	queryParams := searchQueryParams{
 		Jql:        jql,
 		MaxResults: pageSize,
-		StartAt:    page * pageSize,
 		Fields:     "id,key,summary,issuetype,project,reporter,status,assignee",
 	}
 	body, err := api.jiraRequest("GET", SearchJira, queryParams, nil)
@@ -62,4 +62,34 @@ func (api *httpApi) SearchJqlPageable(jql string, page int32, pageSize int32) ([
 		return nil, -1, pageSize, ErrSearchDeserialize
 	}
 	return sResponse.Issues, sResponse.Total, sResponse.MaxResults, err
+}
+
+// SearchJqlAll fetches all pages of results for a JQL query using cursor-based
+// pagination (nextPageToken). Returns up to maxIssues results.
+func (api *httpApi) SearchJqlAll(jql string, pageSize int32, maxIssues int) ([]Issue, error) {
+	allIssues := make([]Issue, 0, maxIssues)
+	nextToken := ""
+	for len(allIssues) < maxIssues {
+		queryParams := searchQueryParams{
+			Jql:           jql,
+			MaxResults:    pageSize,
+			Fields:        "id,key,summary,issuetype,project,reporter,status,assignee",
+			NextPageToken: nextToken,
+		}
+		body, err := api.jiraRequest("GET", SearchJira, queryParams, nil)
+		if err != nil {
+			return allIssues, err
+		}
+		var sResponse searchResponse
+		if err := json.Unmarshal(body, &sResponse); err != nil {
+			app.Error(err.Error())
+			return allIssues, ErrSearchDeserialize
+		}
+		allIssues = append(allIssues, sResponse.Issues...)
+		if sResponse.IsLast || sResponse.NextPageToken == "" {
+			break
+		}
+		nextToken = sResponse.NextPageToken
+	}
+	return allIssues, nil
 }

@@ -11,6 +11,7 @@ type Api interface {
 	Search(query string) ([]Issue, int32, error)
 	SearchJql(query string) ([]Issue, error)
 	SearchJqlPageable(query string, page int32, pageSize int32) ([]Issue, int32, int32, error)
+	SearchJqlAll(jql string, pageSize int32, maxIssues int) ([]Issue, error)
 	FindUsers(project string) ([]User, error)
 	FindUsersWithQuery(project string, query string) ([]User, error)
 	FindProjects() ([]Project, error)

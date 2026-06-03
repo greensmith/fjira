@@ -302,12 +302,8 @@ func (b *boardView) SetSprints(sprints []jira.SprintItem) {
 
 func (b *boardView) fetchIssues() ([]jira.Issue, error) {
 	app.GetApp().Loading(true)
-	issues := make([]jira.Issue, 0, maxIssuesNumber)
-	page := int32(0)
-	var iss []jira.Issue
-	var total int32
-	var err error
 	if b.activeSprint == nil && b.filterJQL == "" && b.boardConfiguration != nil && b.boardConfiguration.Filter.Id != "" {
+		app.LogInfo("board %d: resolving filter id=%s", b.boardConfiguration.Id, b.boardConfiguration.Filter.Id)
 		filter, ferr := b.api.GetFilter(b.boardConfiguration.Filter.Id)
 		if ferr != nil {
 			app.GetApp().Loading(false)
@@ -315,24 +311,60 @@ func (b *boardView) fetchIssues() ([]jira.Issue, error) {
 			return nil, ferr
 		}
 		b.filterJQL = filter.JQL
+		app.LogInfo("board %d: filter JQL = %s", b.boardConfiguration.Id, b.filterJQL)
 	}
-	for len(b.issues) < maxIssuesNumber {
-		if b.activeSprint == nil {
-			iss, total, _, err = b.api.SearchJqlPageable(b.filterJQL, page, issueFetchBatchSize)
-		} else {
-			iss, total, _, err = b.api.GetBoardSprintIssues(b.boardConfiguration.Id, b.activeSprint.Id, page, issueFetchBatchSize)
+
+	if b.activeSprint == nil {
+		// Kanban / filter-based: use cursor pagination (SearchJqlAll)
+		jql := b.filterJQL
+		if jql != "" && b.boardConfiguration != nil && b.boardConfiguration.SubQuery.Query != "" {
+			subQ := b.boardConfiguration.SubQuery.Query
+			app.LogInfo("board %d: raw subQuery = %s", b.boardConfiguration.Id, subQ)
+			// Strip ORDER BY from both — cannot appear inside parentheses
+			if idx := strings.Index(strings.ToUpper(jql), "ORDER BY"); idx > 0 {
+				jql = strings.TrimSpace(jql[:idx])
+			}
+			if idx := strings.Index(strings.ToUpper(subQ), "ORDER BY"); idx > 0 {
+				subQ = strings.TrimSpace(subQ[:idx])
+			}
+			if subQ != "" {
+				jql = "(" + jql + ") AND (" + subQ + ")"
+			}
 		}
+		app.LogInfo("board %d: final JQL = %s", b.boardConfiguration.Id, jql)
+		issues, err := b.api.SearchJqlAll(jql, issueFetchBatchSize, maxIssuesNumber)
 		if err != nil {
 			app.GetApp().Loading(false)
-			app.Error(err.Error())
+			app.LogError("board %d: fetch error: %s", b.boardConfiguration.Id, err)
+			app.Error("Board fetch failed - see ~/.fjira/fjira.log")
+			return nil, err
+		}
+		app.LogInfo("board %d: fetched %d issues", b.boardConfiguration.Id, len(issues))
+		app.GetApp().Loading(false)
+		return issues, nil
+	}
+
+	// Sprint-based: use offset pagination (agile API)
+	issues := make([]jira.Issue, 0, maxIssuesNumber)
+	page := int32(0)
+	for len(issues) < maxIssuesNumber {
+		iss, total, _, err := b.api.GetBoardSprintIssues(b.boardConfiguration.Id, b.activeSprint.Id, page, issueFetchBatchSize)
+		if err != nil {
+			app.GetApp().Loading(false)
+			app.LogError("board %d: sprint fetch error (page %d): %s", b.boardConfiguration.Id, page, err)
+			app.Error("Board fetch failed - see ~/.fjira/fjira.log")
 			return nil, err
 		}
 		issues = append(issues, iss...)
-		if len(issues) >= int(total) {
+		if total > 0 && len(issues) >= int(total) {
+			break
+		}
+		if len(iss) < int(issueFetchBatchSize) {
 			break
 		}
 		page++
 	}
+	app.LogInfo("board %d: fetched %d sprint issues", b.boardConfiguration.Id, len(issues))
 	app.GetApp().Loading(false)
 	return issues, nil
 }
@@ -663,14 +695,34 @@ func (b *boardView) runSelectAssigneeFilter() {
 }
 
 func (b *boardView) getBoardAssignees() []jira.User {
-	assigneeNames := make(map[string]struct{})
 	hasUnassigned := false
+	for _, issue := range b.allIssues {
+		if issue.Fields.Assignee.DisplayName == "" {
+			hasUnassigned = true
+			break
+		}
+	}
+
+	// Try the Jira assignable-users API for a complete list.
+	if b.project != nil && b.project.Key != "" {
+		apiUsers, err := b.api.FindUsers(b.project.Key)
+		if err == nil && len(apiUsers) > 0 {
+			sort.Slice(apiUsers, func(i, j int) bool {
+				return apiUsers[i].DisplayName < apiUsers[j].DisplayName
+			})
+			if hasUnassigned {
+				apiUsers = append(apiUsers, jira.User{DisplayName: ui.MessageUnassigned})
+			}
+			return apiUsers
+		}
+	}
+
+	// Fallback: scrape assignees from issues currently on the board.
+	assigneeNames := make(map[string]struct{})
 	for _, issue := range b.allIssues {
 		assignee := issue.Fields.Assignee
 		if assignee.DisplayName != "" {
 			assigneeNames[assignee.DisplayName] = struct{}{}
-		} else {
-			hasUnassigned = true
 		}
 	}
 	filtered := make([]jira.User, 0, len(assigneeNames)+1)
@@ -681,6 +733,9 @@ func (b *boardView) getBoardAssignees() []jira.User {
 			Key:         name,
 		})
 	}
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].DisplayName < filtered[j].DisplayName
+	})
 	if hasUnassigned {
 		filtered = append(filtered, jira.User{DisplayName: ui.MessageUnassigned})
 	}
