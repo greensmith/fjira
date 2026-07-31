@@ -17,6 +17,23 @@ type Settings struct {
 	// label, excluded statuses) the user last viewed, keyed per connection and
 	// project so they're restored on the next launch. Key: "<workspace>/<projectId>".
 	IssueFilters map[string]ProjectIssueFilters `json:"issueFilters,omitempty" yaml:"issueFilters,omitempty"`
+	// Manage holds fjira self-management knobs (currently only the file cache).
+	// It lives on Settings so a hand-added `manage:` block survives fjira's
+	// whole-file rewrites of fjira.yaml (e.g. WriteIssueFilters).
+	Manage ManageSettings `json:"manage" yaml:"manage,omitempty"`
+}
+
+type ManageSettings struct {
+	Cache CacheSettings `json:"cache" yaml:"cache,omitempty"`
+}
+
+// CacheSettings governs the on-disk issue cache that fjira writes for external
+// readers. Files toggles the write-through (default false); Expires is the
+// writer-side TTL after which cached files are reaped (default "3w";
+// duration syntax plus "d" and "w" units).
+type CacheSettings struct {
+	Files   bool   `json:"files,omitempty" yaml:"files,omitempty"`
+	Expires string `json:"expires,omitempty" yaml:"expires,omitempty"`
 }
 
 // ProjectIssueFilters is the persisted, network-free snapshot of the issue

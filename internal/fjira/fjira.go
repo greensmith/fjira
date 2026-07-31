@@ -9,10 +9,12 @@ import (
 
 	"github.com/mk-5/fjira/internal/app"
 	"github.com/mk-5/fjira/internal/boards"
+	"github.com/mk-5/fjira/internal/cache"
 	"github.com/mk-5/fjira/internal/filters"
 	"github.com/mk-5/fjira/internal/issues"
 	"github.com/mk-5/fjira/internal/jira"
 	"github.com/mk-5/fjira/internal/labels"
+	os2 "github.com/mk-5/fjira/internal/os"
 	"github.com/mk-5/fjira/internal/projects"
 	"github.com/mk-5/fjira/internal/statuses"
 	"github.com/mk-5/fjira/internal/ui"
@@ -68,6 +70,9 @@ func CreateNewFjira(settings *workspaces.WorkspaceSettings) *Fjira {
 		if err != nil {
 			app.Error(err.Error())
 		}
+		if api != nil {
+			api = wrapApiWithCacheWrite(api, settings.Workspace)
+		}
 		fjiraInstance = &Fjira{
 			app:       app.CreateNewApp(),
 			api:       api,
@@ -76,6 +81,24 @@ func CreateNewFjira(settings *workspaces.WorkspaceSettings) *Fjira {
 		}
 	})
 	return fjiraInstance
+}
+
+// wrapApiWithCacheWrite decorates the api with the on-disk cache write-through
+// when manage.cache.files is enabled, and kicks off a background reap of
+// entries older than manage.cache.expires. With caching off (the default) the
+// api is returned untouched and the cache directory is never created.
+func wrapApiWithCacheWrite(api jira.Api, workspace string) jira.Api {
+	cacheSettings := workspaces.ReadCacheSettings()
+	if !cacheSettings.Files {
+		return api
+	}
+	store := cache.NewStore(os2.MustGetFjiraCacheDir(), workspace)
+	ttl, err := cache.ParseExpires(cacheSettings.Expires)
+	if err != nil {
+		ttl, _ = cache.ParseExpires(workspaces.DefaultCacheExpires)
+	}
+	go store.Reap(ttl)
+	return cache.WrapApi(api, store)
 }
 
 func (f *Fjira) Run(args *CliArgs) {
