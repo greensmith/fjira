@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/gdamore/tcell/v2"
 	"github.com/mk-5/fjira/internal/app"
+	"github.com/mk-5/fjira/internal/cache"
 	"github.com/mk-5/fjira/internal/comments"
 	"github.com/mk-5/fjira/internal/jira"
 	"github.com/mk-5/fjira/internal/ui"
@@ -251,7 +252,7 @@ func (view *issueView) Init() {
 // after navigating away harmlessly recomputes/redraws a detached view.
 func (view *issueView) loadEpicChildren() {
 	defer app.GetApp().PanicRecover()
-	children, err := view.api.SearchJql(fmt.Sprintf("parent = \"%s\" ORDER BY key ASC", view.issue.Key))
+	children, err := view.api.SearchJql(cache.ChildrenJql(view.issue.Key))
 	if err != nil || len(children) == 0 {
 		return
 	}

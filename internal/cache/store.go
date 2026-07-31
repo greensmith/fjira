@@ -94,6 +94,22 @@ type ChildrenEntry struct {
 	Issues   []IssueSummaryEntry `json:"issues" yaml:"issues"`
 }
 
+// NewEnvelope returns an envelope stamped with the current time, for entries
+// that are emitted directly (e.g. headless JSON on stdout) rather than
+// written by a Store. An empty workspace resolves to "default", matching
+// NewStore.
+func NewEnvelope(kind string, workspace string) Envelope {
+	if workspace == "" {
+		workspace = defaultWorkspaceName
+	}
+	return Envelope{
+		V:         SchemaVersion,
+		Kind:      kind,
+		Workspace: workspace,
+		FetchedAt: time.Now().Format(time.RFC3339),
+	}
+}
+
 // Store writes cache files for one workspace under one cache root.
 type Store struct {
 	root      string

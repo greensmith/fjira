@@ -1,14 +1,20 @@
 package cache
 
 import (
+	"fmt"
 	"regexp"
 
 	"github.com/mk-5/fjira/internal/jira"
 )
 
-// childrenJqlRegexp recognizes the exact epic-children query fjira's issue
-// view issues (see issues.loadEpicChildren), so its results land under
+// ChildrenJql is the canonical query for an issue's children (an epic's
+// stories, a story's sub-tasks). Every fjira fetch of children must use it —
+// childrenJqlRegexp recognizes exactly this shape to file the results under
 // children/<KEY> instead of an opaque search hash.
+func ChildrenJql(parentKey string) string {
+	return fmt.Sprintf("parent = %q ORDER BY key ASC", parentKey)
+}
+
 var childrenJqlRegexp = regexp.MustCompile(`^parent = "([^"]+)" ORDER BY key ASC$`)
 
 // apiWithCacheWrite decorates jira.Api with cache write-through: every

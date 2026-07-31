@@ -65,22 +65,31 @@ func CreateNewFjira(settings *workspaces.WorkspaceSettings) *Fjira {
 		panic("Cannot find appropriate fjira settings!")
 	}
 	fjiraOnce.Do(func() {
-		url := strings.TrimSuffix(settings.JiraRestUrl, "/")
-		api, err := jira.NewApi(url, settings.JiraUsername, settings.JiraToken, settings.JiraTokenType)
+		api, err := CreateApi(settings)
 		if err != nil {
 			app.Error(err.Error())
-		}
-		if api != nil {
-			api = wrapApiWithCacheWrite(api, settings.Workspace)
 		}
 		fjiraInstance = &Fjira{
 			app:       app.CreateNewApp(),
 			api:       api,
-			jiraUrl:   url,
+			jiraUrl:   strings.TrimSuffix(settings.JiraRestUrl, "/"),
 			workspace: settings.Workspace,
 		}
 	})
 	return fjiraInstance
+}
+
+// CreateApi builds the jira api for the given workspace settings, decorated
+// with the on-disk cache write-through when manage.cache.files is enabled.
+// Unlike CreateNewFjira it has no TUI side effects, so headless commands can
+// use it and still warm the cache.
+func CreateApi(settings *workspaces.WorkspaceSettings) (jira.Api, error) {
+	url := strings.TrimSuffix(settings.JiraRestUrl, "/")
+	api, err := jira.NewApi(url, settings.JiraUsername, settings.JiraToken, settings.JiraTokenType)
+	if err != nil || api == nil {
+		return api, err
+	}
+	return wrapApiWithCacheWrite(api, settings.Workspace), nil
 }
 
 // wrapApiWithCacheWrite decorates the api with the on-disk cache write-through

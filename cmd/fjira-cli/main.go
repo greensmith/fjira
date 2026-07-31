@@ -22,6 +22,9 @@ func initCli() {
 	rootCmd.AddCommand(commands.GetJqlCmd())
 	rootCmd.AddCommand(commands.GetFiltersCmd())
 	rootCmd.AddCommand(commands.GetVersionCmd(version))
+	rootCmd.AddCommand(commands.GetHeadlessIssueCmd())
+	rootCmd.AddCommand(commands.GetHeadlessSearchCmd())
+	rootCmd.AddCommand(commands.GetHeadlessChildrenCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
