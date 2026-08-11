@@ -165,10 +165,13 @@ Usage:
 
 Available Commands:
   [issueKey]  Open a Jira issue directly from the CLI
+  children    Print an issue's children (epic stories, sub-tasks) as JSON
   completion  Generate the autocompletion script for the specified shell
   filters     Search using Jira filters
   help        Help about any command
+  issue       Print a Jira issue (with comments) as JSON
   jql         Search using custom JQL queries
+  search      Run a JQL search and print the result as JSON
   version     Print the version number of fjira
   workspace   Switch to a different workspace
 
@@ -265,6 +268,23 @@ refresh — one file per entity, named by its local fetch date. `<jql-hash>`
 is the first 16 hex chars of SHA-256 over the exact JQL string. Entries
 older than `expires` are reaped on startup. Fjira itself never reads the
 cache; fetches stay live. No tokens or credentials are ever written to it.
+
+### Headless JSON output
+
+For scripts and other tools, fjira can fetch and print without opening the
+TUI:
+
+```shell
+fjira issue PROJ-123 --json        # detail: status, assignee, parent, comments
+fjira search 'project = PROJ' --json
+fjira children PROJ-100 --json     # an epic's stories / an issue's sub-tasks
+```
+
+Each prints a single JSON document with the same schema as the corresponding
+cache file (envelope included). The fetch goes through the same code path as
+the TUI, so with `manage.cache.files` enabled these commands also warm the
+cache — handy in cron. Workspace selection and first-run setup behave exactly
+like the interactive commands, including the `FJIRA_*` environment overrides.
 
 ## Projects search
 
