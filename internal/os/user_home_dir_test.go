@@ -43,6 +43,21 @@ func TestMustGetUserHomeDir_userHomeWhenExist(t *testing.T) {
 	}
 }
 
+func TestMustGetFjiraCacheDir_xdgPath(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", "xdg_cache")
+	if got := MustGetFjiraCacheDir(); got != "xdg_cache/fjira" {
+		t.Errorf("MustGetFjiraCacheDir() = %v, want %v", got, "xdg_cache/fjira")
+	}
+}
+
+func TestMustGetFjiraCacheDir_homeFallback(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", "")
+	_ = SetUserHomeDir("user_home")
+	if got := MustGetFjiraCacheDir(); got != "user_home/.cache/fjira" {
+		t.Errorf("MustGetFjiraCacheDir() = %v, want %v", got, "user_home/.cache/fjira")
+	}
+}
+
 func TestMustGetUserHomeDir_homePath(t *testing.T) {
 	tests := []struct {
 		name string

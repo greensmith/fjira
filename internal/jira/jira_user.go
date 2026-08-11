@@ -18,6 +18,9 @@ type User struct {
 	TimeZone     string            `json:"timeZone"`
 	Key          string            `json:"key"`  // field used by on-premise installation
 	Name         string            `json:"name"` // field used by on-premise installation
+	// AccountType is jira cloud's user kind: "atlassian" (person), "app"
+	// (bot/integration), or "customer" (JSM portal user). Empty on-premise.
+	AccountType string `json:"accountType"`
 }
 
 const (

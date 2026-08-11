@@ -40,6 +40,18 @@ func MustGetFjiraHomeDir() string {
 	return userHomeDir
 }
 
+// MustGetFjiraCacheDir returns the fjira cache root: $XDG_CACHE_HOME/fjira,
+// falling back to ~/.cache/fjira when XDG_CACHE_HOME is unset. Unlike
+// MustGetFjiraHomeDir there is no existence probing — the cache is
+// regenerable, and external readers of the cache resolve the same rule, so
+// the path must be deterministic from the environment alone.
+func MustGetFjiraCacheDir() string {
+	if xdg := os.Getenv("XDG_CACHE_HOME"); xdg != "" {
+		return fmt.Sprintf("%s/fjira", xdg)
+	}
+	return fmt.Sprintf("%s/.cache/fjira", MustGetUserHomeDir())
+}
+
 func dirExist(path string) bool {
 	if stat, err := os.Stat(path); err == nil && stat.IsDir() {
 		return true

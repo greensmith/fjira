@@ -235,6 +235,37 @@ Enter a number (Default is 1):
 If you prefer a manual approach, you have the option to add workspace configurations by creating a `fjira.yaml` file in the `~/.fjira/` directory.
 For your convenience, an example configuration file is here: [fjira.yml](assets/fjira.yaml)
 
+### File cache for external tools
+
+Fjira can mirror everything it fetches into a plain-YAML cache that other
+tools can read (dashboards, status bars, scripts). It's off by default;
+enable it in `fjira.yaml`:
+
+```yaml
+manage:
+  cache:
+    files: true    # default: false
+    expires: 3w    # writer-side TTL; also accepts e.g. 10d, 36h
+```
+
+Or per-invocation via `FJIRA_CACHE_FILES=1` / `FJIRA_CACHE_EXPIRES=10d`.
+
+When enabled, every issue open and search you perform in the TUI is also
+written to `$XDG_CACHE_HOME/fjira/` (falling back to `~/.cache/fjira/`) as
+
+```text
+<workspace>/issue/PROJ-123.<date>.yaml      # detail: status, assignee, parent, comments
+<workspace>/search/<jql-hash>.<date>.yaml   # summary list for a JQL (first page)
+<workspace>/children/PROJ-100.<date>.yaml   # an epic's children
+```
+
+Each file starts with a `v`/`kind`/`workspace`/`fetchedAt` envelope, is
+written atomically (temp file + rename), and is replaced in place on
+refresh — one file per entity, named by its local fetch date. `<jql-hash>`
+is the first 16 hex chars of SHA-256 over the exact JQL string. Entries
+older than `expires` are reaped on startup. Fjira itself never reads the
+cache; fetches stay live. No tokens or credentials are ever written to it.
+
 ## Projects search
 
 The default view when you run `fjira` is the project search screen.
